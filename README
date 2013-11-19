@@ -1,0 +1,3 @@
+Running Locally:
+$ ./bin/build
+$ ./bin/run
