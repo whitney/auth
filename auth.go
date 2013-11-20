@@ -5,9 +5,12 @@ import (
   "log"
   "net/http"
   "os"
+  "strconv"
+  "encoding/base64"
+  "encoding/json"
   "github.com/jmoiron/sqlx"
   _ "github.com/lib/pq"
-  //"github.com/gorilla/securecookie"
+  "github.com/gorilla/securecookie"
   "code.google.com/p/go.crypto/bcrypt"
 )
 
@@ -41,20 +44,9 @@ type User struct {
 
 func test(res http.ResponseWriter, req *http.Request) {
   res.Header().Set("Content-Type", "application/json") 
-
-  password := req.FormValue("password")
-  if len(password) < 5 {
-    http.Error(res, "invalid password", http.StatusBadRequest)
-    return
-  }
-
-  hashedPwd, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-  if err != nil {
-    http.Error(res, err.Error(), http.StatusInternalServerError)
-    return
-  }
-
-  fmt.Fprintln(res, "hashedPwd: " + string(hashedPwd))
+  authTkn := base64.URLEncoding.EncodeToString(securecookie.GenerateRandomKey(32)) 
+  log.Printf("len(authTkn): %s", len(authTkn))
+  fmt.Fprintln(res, "authTkn: " + authTkn)
 }
 
 func createUser(res http.ResponseWriter, req *http.Request) {
@@ -85,8 +77,7 @@ func createUser(res http.ResponseWriter, req *http.Request) {
   }
   log.Printf("hashedPwd: %s", string(hashedPwd))
 
-  //authTkn := string(securecookie.GenerateRandomKey(64)) 
-  authTkn := "pants"
+  authTkn := base64.URLEncoding.EncodeToString(securecookie.GenerateRandomKey(32)) 
   log.Printf("authTkn: %s", authTkn)
 
   uId, err := insertUser(username, string(hashedPwd), authTkn)
@@ -96,11 +87,15 @@ func createUser(res http.ResponseWriter, req *http.Request) {
   }
 
   uMap := make(map[string]string)
-  uMap["id"] = string(uId)
+  uMap["id"] = strconv.Itoa(int(uId))
   uMap["username"] = username
+  json, err := json.Marshal(uMap)
+  if err != nil {
+    http.Error(res, err.Error(), http.StatusInternalServerError)
+    return
+  }
 
-  //fmt.Fprintln(res, "{'msg': 'ok'}")
-  fmt.Fprintln(res, uMap)
+  fmt.Fprintln(res, string(json))
 }
 
 func login(res http.ResponseWriter, req *http.Request) {
@@ -131,24 +126,30 @@ func login(res http.ResponseWriter, req *http.Request) {
     return
   }
 
-  fmt.Fprintln(res, "{'msg': 'ok'}")
+  log.Printf("user.Id: %s", user.Id)
+  uMap := make(map[string]string)
+  uMap["id"] = strconv.Itoa(user.Id)
+  uMap["username"] = user.Username
+  json, err := json.Marshal(uMap)
+  if err != nil {
+    http.Error(res, err.Error(), http.StatusInternalServerError)
+    return
+  }
+
+  fmt.Fprintln(res, string(json))
 }
 
 func insertUser(username string, pwdDigest string, authTkn string) (uId int64, err error) {
-  tx := db.MustBegin()
-  res, err := tx.Execv("INSERT INTO users (username, password_digest, auth_token) VALUES ($1, $2, $3)", 
+  //res, err := db.Execv("INSERT INTO users (username, password_digest, auth_token) VALUES ($1, $2, $3)", 
+  res, err := db.Execv("INSERT INTO users (username, password_digest, auth_token) VALUES ($1, $2, $3) RETURNING id", 
                     username,
                     pwdDigest, 
                     authTkn)
-  tx.Commit()
   return res.LastInsertId()
 }
 
 func queryUser(username string) (u User, err error) {
-  u = User{}
-  row := db.QueryRowx("SELECT * FROM users WHERE username=?", username)
-  err = row.StructScan(&u)
-  log.Printf("u.Username: %s", u.Username)
+  err = db.Get(&u, "SELECT * FROM users WHERE username=$1", username)
   if err != nil {
     return u,err
   }
