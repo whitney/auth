@@ -171,12 +171,6 @@ func setAuthCookie(authTkn string, res http.ResponseWriter) (err error) {
 }
 
 func invalidateAuthCookie(res http.ResponseWriter) (err error) {
-  var secureCookie bool
-  if os.Getenv("COOKIE_SEC") == "encrypted" {
-    secureCookie = true
-  } else {
-    secureCookie = false
-  }
   expiry := time.Now().Add(-24*time.Hour)
   if err == nil {
     cookie := &http.Cookie{
@@ -184,7 +178,6 @@ func invalidateAuthCookie(res http.ResponseWriter) (err error) {
       Value: "xxx",
       Path:  "/",
       HttpOnly: true,
-      Secure: secureCookie,
       Expires: expiry,
     }
     http.SetCookie(res, cookie)
