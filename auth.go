@@ -19,7 +19,9 @@ var db *sqlx.DB
 func main() {
   var err error
   // Connect to a database and verify with a ping.
-  db, err = sqlx.Connect("postgres", "user=whitney password=pants dbname=auth_devel sslmode=disable")
+  // postgres://uname:pwd@host/dbname?sslmode=disable
+  dbUrl := os.Getenv("PG_HOST")
+  db, err = sqlx.Connect("postgres", dbUrl)
   if err != nil {
     panic(err)
   }
@@ -36,7 +38,7 @@ func main() {
 }
 
 type User struct {
-  Id             int
+  Id             int64
   Username       string
   PasswordDigest string `db:"password_digest"`
   AuthToken      string `db:"auth_token"`
@@ -126,26 +128,29 @@ func login(res http.ResponseWriter, req *http.Request) {
     return
   }
 
-  log.Printf("user.Id: %s", user.Id)
   uMap := make(map[string]string)
-  uMap["id"] = strconv.Itoa(user.Id)
+  uMap["id"] = strconv.Itoa(int(user.Id))
   uMap["username"] = user.Username
-  json, err := json.Marshal(uMap)
+  jsonStr, err := jsonWrapMap(uMap)
   if err != nil {
     http.Error(res, err.Error(), http.StatusInternalServerError)
     return
   }
 
-  fmt.Fprintln(res, string(json))
+  fmt.Fprintln(res, jsonStr)
 }
 
 func insertUser(username string, pwdDigest string, authTkn string) (uId int64, err error) {
-  //res, err := db.Execv("INSERT INTO users (username, password_digest, auth_token) VALUES ($1, $2, $3)", 
-  res, err := db.Execv("INSERT INTO users (username, password_digest, auth_token) VALUES ($1, $2, $3) RETURNING id", 
+  _, err = db.Execv("INSERT INTO users (username, password_digest, auth_token) VALUES ($1, $2, $3)", 
                     username,
                     pwdDigest, 
                     authTkn)
-  return res.LastInsertId()
+  if err != nil {
+    return uId,err
+  }
+
+  user, err := queryUser(username)
+  return user.Id, err
 }
 
 func queryUser(username string) (u User, err error) {
@@ -154,4 +159,18 @@ func queryUser(username string) (u User, err error) {
     return u,err
   }
   return u,nil
+}
+
+func jsonWrapStr(s string) (js string, err error) {
+  m := make(map[string]string)
+  m["msg"] = s
+  return jsonWrapMap(m)
+}
+
+func jsonWrapMap(m map[string]string) (s string, err error) {
+  json, err := json.Marshal(m)
+  if err != nil {
+    return s, err
+  }
+  return string(json),nil
 }
