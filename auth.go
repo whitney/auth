@@ -170,19 +170,15 @@ func setAuthCookie(authTkn string, res http.ResponseWriter) (err error) {
   return err
 }
 
-func invalidateAuthCookie(res http.ResponseWriter) (err error) {
-  expiry := time.Now().Add(-24*time.Hour)
-  if err == nil {
-    cookie := &http.Cookie{
-      Name:  cookieName,
-      Value: "xxx",
-      Path:  "/",
-      HttpOnly: true,
-      Expires: expiry,
-    }
-    http.SetCookie(res, cookie)
+func invalidateAuthCookie(res http.ResponseWriter) {
+  cookie := &http.Cookie{
+    Name:  cookieName,
+    Value: "xxx",
+    Path:  "/",
+    HttpOnly: true,
+    Expires: time.Now().Add(-24*time.Hour),
   }
-  return err
+  http.SetCookie(res, cookie)
 }
 
 func login(res http.ResponseWriter, req *http.Request) {
@@ -233,11 +229,7 @@ func login(res http.ResponseWriter, req *http.Request) {
 
 func logout(res http.ResponseWriter, req *http.Request) {
   res.Header().Set("Content-Type", "application/json") 
-  err := invalidateAuthCookie(res)
-  if err != nil {
-    http.Error(res, err.Error(), http.StatusInternalServerError)
-    return
-  }
+  invalidateAuthCookie(res)
   fmt.Fprintln(res, "{'msg': 'ok'}")
 }
 
