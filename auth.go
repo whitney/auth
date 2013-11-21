@@ -5,6 +5,7 @@ import (
   "net/http"
   "os"
   "time"
+  "strconv"
   "encoding/base64"
   "encoding/json"
   "github.com/jmoiron/sqlx"
@@ -24,16 +25,20 @@ type User struct {
   AuthToken      string `db:"auth_token"`
 }
 
-// TODO: implement
-/*
-func Authenticate(req *http.Request) (User, error) {
+func (u *User) Json() (string, error) {
+  uMap := make(map[string]string)
+  uMap["id"] = strconv.Itoa(int(u.Id))
+  uMap["username"] = u.Username
+  return JsonWrapMap(uMap)
+}
+
+func AuthenticateUser(db *sqlx.DB, req *http.Request) (u User, err error) {
   authTkn, err := ReadAuthCookie(req)
   if err != nil {
-    return nil,err
+    return u,err
   }
-  return core.QueryUserByAuthTkn(db, authTkn)
+  return QueryUserByAuthTkn(db, authTkn)
 }
-*/
 
 func ReadAuthCookie(req *http.Request) (authTkn string, err error) {
   cookie, err := req.Cookie(cookieName)
@@ -104,17 +109,16 @@ func CompareHashAndPassword(pwdDigest string, pwd string) error {
   return bcrypt.CompareHashAndPassword([]byte(pwdDigest), []byte(pwd))
 }
 
-func InsertUser(db *sqlx.DB, username string, pwdDigest string, authTkn string) (uId int64, err error) {
+func InsertUser(db *sqlx.DB, username string, pwdDigest string, authTkn string) (u User, err error) {
   _, err = db.Execv("INSERT INTO users (username, password_digest, auth_token) VALUES ($1, $2, $3)", 
                     username,
                     pwdDigest, 
                     authTkn)
   if err != nil {
-    return uId,err
+    return u,err
   }
 
-  user, err := QueryUserByUsername(db, username)
-  return user.Id, err
+  return QueryUserByUsername(db, username)
 }
 
 func QueryUserByUsername(db *sqlx.DB, username string) (u User, err error) {
