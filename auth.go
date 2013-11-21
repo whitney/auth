@@ -1,166 +1,148 @@
-package main
+package authcore
 
 import (
-  "fmt"
-  "log"
+  //"log"
   "net/http"
   "os"
-  "strconv"
+  "time"
+  "encoding/base64"
   "encoding/json"
-  "github.com/whitney/auth/authcore"
   "github.com/jmoiron/sqlx"
   _ "github.com/lib/pq"
+  "github.com/gorilla/securecookie"
+  "code.google.com/p/go.crypto/bcrypt"
 )
 
-var db *sqlx.DB
+const (
+  cookieName string = "AUTHID"
+)
 
-func main() {
-  var err error
-  // Connect to a database and verify with a ping.
-  // postgres://uname:pwd@host/dbname?sslmode=disable
-  dbUrl := os.Getenv("PG_HOST")
-  db, err = sqlx.Connect("postgres", dbUrl)
-  if err != nil {
-    panic(err)
-  }
-
-  http.HandleFunc("/auth/signup", signup)
-  http.HandleFunc("/auth/login", login)
-  http.HandleFunc("/auth/logout", logout)
-  http.HandleFunc("/auth/authenticated", authenticated)
-
-  log.Println("listening...")
-  err = http.ListenAndServe(":"+os.Getenv("AUTH_PORT"), nil)
-  if err != nil {
-    panic(err)
-  }
+type User struct {
+  Id             int64
+  Username       string
+  PasswordDigest string `db:"password_digest"`
+  AuthToken      string `db:"auth_token"`
 }
 
-// API
-func authenticated(res http.ResponseWriter, req *http.Request) {
-  res.Header().Set("Content-Type", "application/json") 
-  authTkn, err := authcore.ReadAuthCookie(req)
+// TODO: implement
+/*
+func Authenticate(req *http.Request) (User, error) {
+  authTkn, err := ReadAuthCookie(req)
   if err != nil {
-    http.Error(res, err.Error(), http.StatusUnauthorized)
-    return
+    return nil,err
+  }
+  return core.QueryUserByAuthTkn(db, authTkn)
+}
+*/
+
+func ReadAuthCookie(req *http.Request) (authTkn string, err error) {
+  cookie, err := req.Cookie(cookieName)
+  if err != nil {
+    return authTkn, err
   }
 
-  user, err := authcore.QueryUserByAuthTkn(db, authTkn)
-  if err != nil {
-    http.Error(res, err.Error(), http.StatusNotFound)
-    return
+  hashKey := []byte("very-secret")
+  var blockKey []byte
+  if os.Getenv("COOKIE_SEC") == "encrypted" {
+    blockKey = []byte("a-lot-secret")
+  } else {
+    blockKey = nil
   }
-
-  uMap := make(map[string]string)
-  uMap["id"] = strconv.Itoa(int(user.Id))
-  uMap["username"] = user.Username
-  jsonStr, err := authcore.JsonWrapMap(uMap)
-  if err != nil {
-    http.Error(res, err.Error(), http.StatusInternalServerError)
-    return
-  }
-
-  fmt.Fprintln(res, jsonStr)
+  s := securecookie.New(hashKey, blockKey)
+  err = s.Decode(cookieName, cookie.Value, &authTkn)
+  return authTkn, err
 }
 
-// API
-func signup(res http.ResponseWriter, req *http.Request) {
-  res.Header().Set("Content-Type", "application/json") 
-
-  username := req.FormValue("username")
-  if len(username) == 0 {
-    http.Error(res, "username missing", http.StatusBadRequest)
-    return
+func SetAuthCookie(authTkn string, res http.ResponseWriter) (err error) {
+  hashKey := []byte("very-secret")
+  var blockKey []byte
+  var secureCookie bool
+  if os.Getenv("COOKIE_SEC") == "encrypted" {
+    blockKey = []byte("a-lot-secret")
+    secureCookie = true
+  } else {
+    blockKey = nil
+    secureCookie = false
   }
-
-  password := req.FormValue("password")
-  if len(password) < 5 {
-    http.Error(res, "invalid password", http.StatusBadRequest)
-    return
-  }
-
-  _, err := authcore.QueryUserByUsername(db, username)
+  s := securecookie.New(hashKey, blockKey)
+  encoded, err := s.Encode(cookieName, authTkn)
+  expiry := time.Now().Add(24*365*time.Hour)
   if err == nil {
-    http.Error(res, "username taken", http.StatusBadRequest)
-    return
+    cookie := &http.Cookie{
+      Name:  cookieName,
+      Value: encoded,
+      Path:  "/",
+      HttpOnly: true,
+      Secure: secureCookie,
+      Expires: expiry,
+    }
+    http.SetCookie(res, cookie)
   }
-
-  hashedPwd, err := authcore.HashPassword(password)
-  if err != nil {
-    http.Error(res, err.Error(), http.StatusInternalServerError)
-    return
-  }
-
-  authTkn := authcore.CreateAuthTkn()
-  log.Printf("authTkn: %s", authTkn)
-
-  uId, err := authcore.InsertUser(db, username, string(hashedPwd), authTkn)
-  if err != nil {
-    http.Error(res, err.Error(), http.StatusInternalServerError)
-    return
-  }
-
-  uMap := make(map[string]string)
-  uMap["id"] = strconv.Itoa(int(uId))
-  uMap["username"] = username
-  json, err := json.Marshal(uMap)
-  if err != nil {
-    http.Error(res, err.Error(), http.StatusInternalServerError)
-    return
-  }
-
-  fmt.Fprintln(res, string(json))
+  return err
 }
 
-// API
-func login(res http.ResponseWriter, req *http.Request) {
-  res.Header().Set("Content-Type", "application/json") 
-
-  username := req.FormValue("username")
-  if len(username) == 0 {
-    http.Error(res, "username missing", http.StatusBadRequest)
-    return
+func InvalidateAuthCookie(res http.ResponseWriter) {
+  cookie := &http.Cookie{
+    Name:  cookieName,
+    Value: "xxx",
+    Path:  "/",
+    HttpOnly: true,
+    Expires: time.Now().Add(-24*time.Hour),
   }
-
-  password := req.FormValue("password")
-  if len(password) == 0 {
-    http.Error(res, "password missing", http.StatusBadRequest)
-    return
-  }
-
-  user, err := authcore.QueryUserByUsername(db, username)
-  if err != nil {
-    http.Error(res, err.Error(), http.StatusNotFound)
-    return
-  }
-
-  err = authcore.CompareHashAndPassword(user.PasswordDigest, password)
-  if err != nil {
-    http.Error(res, err.Error(), http.StatusUnauthorized)
-    return
-  }
-
-  uMap := make(map[string]string)
-  uMap["id"] = strconv.Itoa(int(user.Id))
-  uMap["username"] = user.Username
-  jsonStr, err := authcore.JsonWrapMap(uMap)
-  if err != nil {
-    http.Error(res, err.Error(), http.StatusInternalServerError)
-    return
-  }
-
-  err = authcore.SetAuthCookie(user.AuthToken, res)
-  if err != nil {
-    http.Error(res, err.Error(), http.StatusInternalServerError)
-    return
-  }
-
-  fmt.Fprintln(res, jsonStr)
+  http.SetCookie(res, cookie)
 }
 
-// API
-func logout(res http.ResponseWriter, req *http.Request) {
-  res.Header().Set("Content-Type", "application/json") 
-  authcore.InvalidateAuthCookie(res)
-  fmt.Fprintln(res, "{'msg': 'ok'}")
+func CreateAuthTkn() string {
+  return base64.URLEncoding.EncodeToString(securecookie.GenerateRandomKey(32))
+}
+
+func HashPassword(pwd string) ([]byte, error) {
+  return bcrypt.GenerateFromPassword([]byte(pwd), bcrypt.DefaultCost)
+}
+
+func CompareHashAndPassword(pwdDigest string, pwd string) error {
+  return bcrypt.CompareHashAndPassword([]byte(pwdDigest), []byte(pwd))
+}
+
+func InsertUser(db *sqlx.DB, username string, pwdDigest string, authTkn string) (uId int64, err error) {
+  _, err = db.Execv("INSERT INTO users (username, password_digest, auth_token) VALUES ($1, $2, $3)", 
+                    username,
+                    pwdDigest, 
+                    authTkn)
+  if err != nil {
+    return uId,err
+  }
+
+  user, err := QueryUserByUsername(db, username)
+  return user.Id, err
+}
+
+func QueryUserByUsername(db *sqlx.DB, username string) (u User, err error) {
+  err = db.Get(&u, "SELECT * FROM users WHERE username=$1", username)
+  if err != nil {
+    return u,err
+  }
+  return u,nil
+}
+
+func QueryUserByAuthTkn(db *sqlx.DB, authTkn string) (u User, err error) {
+  err = db.Get(&u, "SELECT * FROM users WHERE auth_token=$1", authTkn)
+  if err != nil {
+    return u,err
+  }
+  return u,nil
+}
+
+func JsonWrapStr(s string) (js string, err error) {
+  m := make(map[string]string)
+  m["msg"] = s
+  return JsonWrapMap(m)
+}
+
+func JsonWrapMap(m map[string]string) (s string, err error) {
+  json, err := json.Marshal(m)
+  if err != nil {
+    return s, err
+  }
+  return string(json),nil
 }
