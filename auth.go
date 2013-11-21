@@ -33,14 +33,14 @@ func (u *User) Json() (string, error) {
 }
 
 func AuthenticateUser(db *sqlx.DB, req *http.Request) (u User, err error) {
-  authTkn, err := ReadAuthCookie(req)
+  authTkn, err := readAuthCookie(req)
   if err != nil {
     return u,err
   }
-  return QueryUserByAuthTkn(db, authTkn)
+  return queryUserByAuthTkn(db, authTkn)
 }
 
-func ReadAuthCookie(req *http.Request) (authTkn string, err error) {
+func readAuthCookie(req *http.Request) (authTkn string, err error) {
   cookie, err := req.Cookie(cookieName)
   if err != nil {
     return authTkn, err
@@ -129,7 +129,7 @@ func QueryUserByUsername(db *sqlx.DB, username string) (u User, err error) {
   return u,nil
 }
 
-func QueryUserByAuthTkn(db *sqlx.DB, authTkn string) (u User, err error) {
+func queryUserByAuthTkn(db *sqlx.DB, authTkn string) (u User, err error) {
   err = db.Get(&u, "SELECT * FROM users WHERE auth_token=$1", authTkn)
   if err != nil {
     return u,err
