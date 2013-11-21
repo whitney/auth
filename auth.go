@@ -1,4 +1,4 @@
-package authcore
+package auth
 
 import (
   //"log"
