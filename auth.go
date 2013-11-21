@@ -7,7 +7,7 @@ import (
   "os"
   "strconv"
   "encoding/json"
-  "github.com/whitney/auth/core"
+  "github.com/whitney/auth/authcore"
   "github.com/jmoiron/sqlx"
   _ "github.com/lib/pq"
 )
@@ -39,13 +39,13 @@ func main() {
 // API
 func authenticated(res http.ResponseWriter, req *http.Request) {
   res.Header().Set("Content-Type", "application/json") 
-  authTkn, err := core.ReadAuthCookie(req)
+  authTkn, err := authcore.ReadAuthCookie(req)
   if err != nil {
     http.Error(res, err.Error(), http.StatusUnauthorized)
     return
   }
 
-  user, err := core.QueryUserByAuthTkn(db, authTkn)
+  user, err := authcore.QueryUserByAuthTkn(db, authTkn)
   if err != nil {
     http.Error(res, err.Error(), http.StatusNotFound)
     return
@@ -54,7 +54,7 @@ func authenticated(res http.ResponseWriter, req *http.Request) {
   uMap := make(map[string]string)
   uMap["id"] = strconv.Itoa(int(user.Id))
   uMap["username"] = user.Username
-  jsonStr, err := core.JsonWrapMap(uMap)
+  jsonStr, err := authcore.JsonWrapMap(uMap)
   if err != nil {
     http.Error(res, err.Error(), http.StatusInternalServerError)
     return
@@ -79,22 +79,22 @@ func signup(res http.ResponseWriter, req *http.Request) {
     return
   }
 
-  _, err := core.QueryUserByUsername(db, username)
+  _, err := authcore.QueryUserByUsername(db, username)
   if err == nil {
     http.Error(res, "username taken", http.StatusBadRequest)
     return
   }
 
-  hashedPwd, err := core.HashPassword(password)
+  hashedPwd, err := authcore.HashPassword(password)
   if err != nil {
     http.Error(res, err.Error(), http.StatusInternalServerError)
     return
   }
 
-  authTkn := core.CreateAuthTkn()
+  authTkn := authcore.CreateAuthTkn()
   log.Printf("authTkn: %s", authTkn)
 
-  uId, err := core.InsertUser(db, username, string(hashedPwd), authTkn)
+  uId, err := authcore.InsertUser(db, username, string(hashedPwd), authTkn)
   if err != nil {
     http.Error(res, err.Error(), http.StatusInternalServerError)
     return
@@ -128,13 +128,13 @@ func login(res http.ResponseWriter, req *http.Request) {
     return
   }
 
-  user, err := core.QueryUserByUsername(db, username)
+  user, err := authcore.QueryUserByUsername(db, username)
   if err != nil {
     http.Error(res, err.Error(), http.StatusNotFound)
     return
   }
 
-  err = core.CompareHashAndPassword(user.PasswordDigest, password)
+  err = authcore.CompareHashAndPassword(user.PasswordDigest, password)
   if err != nil {
     http.Error(res, err.Error(), http.StatusUnauthorized)
     return
@@ -143,13 +143,13 @@ func login(res http.ResponseWriter, req *http.Request) {
   uMap := make(map[string]string)
   uMap["id"] = strconv.Itoa(int(user.Id))
   uMap["username"] = user.Username
-  jsonStr, err := core.JsonWrapMap(uMap)
+  jsonStr, err := authcore.JsonWrapMap(uMap)
   if err != nil {
     http.Error(res, err.Error(), http.StatusInternalServerError)
     return
   }
 
-  err = core.SetAuthCookie(user.AuthToken, res)
+  err = authcore.SetAuthCookie(user.AuthToken, res)
   if err != nil {
     http.Error(res, err.Error(), http.StatusInternalServerError)
     return
@@ -161,6 +161,6 @@ func login(res http.ResponseWriter, req *http.Request) {
 // API
 func logout(res http.ResponseWriter, req *http.Request) {
   res.Header().Set("Content-Type", "application/json") 
-  core.InvalidateAuthCookie(res)
+  authcore.InvalidateAuthCookie(res)
   fmt.Fprintln(res, "{'msg': 'ok'}")
 }

@@ -1,4 +1,4 @@
-package core
+package authcore
 
 import (
   //"log"
@@ -23,6 +23,17 @@ type User struct {
   PasswordDigest string `db:"password_digest"`
   AuthToken      string `db:"auth_token"`
 }
+
+// TODO: implement
+/*
+func Authenticate(req *http.Request) (User, error) {
+  authTkn, err := ReadAuthCookie(req)
+  if err != nil {
+    return nil,err
+  }
+  return core.QueryUserByAuthTkn(db, authTkn)
+}
+*/
 
 func ReadAuthCookie(req *http.Request) (authTkn string, err error) {
   cookie, err := req.Cookie(cookieName)
