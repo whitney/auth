@@ -18,6 +18,17 @@ const (
   cookieName string = "AUTHID"
 )
 
+type Client struct {
+  db *sqlx.DB
+}
+
+func NewClient(db *sqlx.DB) *Client {
+  c := Client{
+    db: db,
+  }
+  return &c
+}
+
 type User struct {
   Id             int64
   Username       string
@@ -32,12 +43,12 @@ func (u *User) Json() (string, error) {
   return JsonWrapMap(uMap)
 }
 
-func AuthenticateUser(db *sqlx.DB, req *http.Request) (u User, err error) {
+func (c *Client) AuthenticateUser(req *http.Request) (u User, err error) {
   authTkn, err := readAuthCookie(req)
   if err != nil {
     return u,err
   }
-  return queryUserByAuthTkn(db, authTkn)
+  return queryUserByAuthTkn(c.db, authTkn)
 }
 
 func readAuthCookie(req *http.Request) (authTkn string, err error) {
@@ -46,27 +57,18 @@ func readAuthCookie(req *http.Request) (authTkn string, err error) {
     return authTkn, err
   }
 
-  hashKey := []byte("very-secret")
-  var blockKey []byte
-  if os.Getenv("COOKIE_SEC") == "encrypted" {
-    blockKey = []byte("a-lot-secret")
-  } else {
-    blockKey = nil
-  }
+  hashKey, blockKey := cookieKeys() 
   s := securecookie.New(hashKey, blockKey)
   err = s.Decode(cookieName, cookie.Value, &authTkn)
   return authTkn, err
 }
 
 func SetAuthCookie(authTkn string, res http.ResponseWriter) (err error) {
-  hashKey := []byte("very-secret")
-  var blockKey []byte
+  hashKey, blockKey := cookieKeys() 
   var secureCookie bool
   if os.Getenv("COOKIE_SEC") == "encrypted" {
-    blockKey = []byte("a-lot-secret")
     secureCookie = true
   } else {
-    blockKey = nil
     secureCookie = false
   }
   s := securecookie.New(hashKey, blockKey)
@@ -84,6 +86,18 @@ func SetAuthCookie(authTkn string, res http.ResponseWriter) (err error) {
     http.SetCookie(res, cookie)
   }
   return err
+}
+
+func cookieKeys() (hashKey []byte, blockKey []byte) {
+  hashKeyStr := os.Getenv("CK_HASH_KEY") // secret
+  blockKeyStr := os.Getenv("CK_BLOCK_KEY") // very secret
+  hashKey = []byte(hashKeyStr)
+  if os.Getenv("COOKIE_SEC") == "encrypted" {
+    blockKey = []byte(blockKeyStr)
+  } else {
+    blockKey = nil
+  }
+  return
 }
 
 func InvalidateAuthCookie(res http.ResponseWriter) {
